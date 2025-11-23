@@ -81,3 +81,33 @@ func (r *Repository) UpdateSQN(ctx context.Context, imsi, newSQN string) error {
 	_, err := r.Pool.Exec(ctx, query, imsi, newSQN)
 	return err
 }
+
+func (r *Repository) GetSubscriberCount(ctx context.Context) (int64, error) {
+	query := `SELECT COUNT(*) FROM public.subscribers`
+	var count int64
+	err := r.Pool.QueryRow(ctx, query).Scan(&count)
+	return count, err
+}
+
+func (r *Repository) ListSubscribers(ctx context.Context) ([]*model.Subscriber, error) {
+	query := `
+		SELECT imsi, ki, opc, sqn, amf, created_at
+		FROM public.subscribers
+		ORDER BY imsi ASC
+	`
+	rows, err := r.Pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subscribers []*model.Subscriber
+	for rows.Next() {
+		var sub model.Subscriber
+		if err := rows.Scan(&sub.IMSI, &sub.Ki, &sub.Opc, &sub.SQN, &sub.AMF, &sub.CreatedAt); err != nil {
+			return nil, err
+		}
+		subscribers = append(subscribers, &sub)
+	}
+	return subscribers, rows.Err()
+}

@@ -34,6 +34,8 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	subs := v1.Group("/subscribers")
 	subs.Use(IPAllowlist(h.Cfg.DBAPIAllowedIPs))
 	subs.POST("", h.CreateSubscriber)
+	subs.GET("", h.ListSubscribers)          // New: List all
+	subs.GET("/count", h.GetSubscriberCount) // New: Count
 	subs.GET("/:imsi", h.GetSubscriber)
 	subs.PUT("/:imsi", h.UpdateSubscriber)
 	subs.DELETE("/:imsi", h.DeleteSubscriber)
@@ -171,4 +173,28 @@ func (h *Handler) DeleteSubscriber(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h *Handler) GetSubscriberCount(c *gin.Context) {
+	count, err := h.Repo.GetSubscriberCount(c.Request.Context())
+	if err != nil {
+		slog.Error("Failed to get subscriber count", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"count": count})
+}
+
+func (h *Handler) ListSubscribers(c *gin.Context) {
+	subs, err := h.Repo.ListSubscribers(c.Request.Context())
+	if err != nil {
+		slog.Error("Failed to list subscribers", "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	// Return empty list instead of null if nil
+	if subs == nil {
+		subs = []*model.Subscriber{}
+	}
+	c.JSON(http.StatusOK, subs)
 }

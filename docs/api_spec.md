@@ -98,6 +98,46 @@ Empty body.
 - `400 Bad Request`: Invalid input format.
 - `500 Internal Server Error`: Database error (e.g., duplicate IMSI).
 
+#### Get Subscriber Count
+Returns the total number of registered subscribers.
+
+- **URL**: `/subscribers/count`
+- **Method**: `GET`
+
+##### Success Response (200 OK)
+```json
+{
+    "count": 100
+}
+```
+
+##### Error Responses
+- `500 Internal Server Error`: Database error.
+
+#### List Subscribers
+Returns a list of all registered subscribers.
+
+- **URL**: `/subscribers`
+- **Method**: `GET`
+
+##### Success Response (200 OK)
+```json
+[
+    {
+        "imsi": "123456789012345",
+        "ki":   "00112233445566778899aabbccddeeff",
+        "opc":  "000102030405060708090a0b0c0d0e0f",
+        "sqn":  "000000000020",
+        "amf":  "8000",
+        "created_at": "2023-10-27T10:00:00Z"
+    },
+    ...
+]
+```
+
+##### Error Responses
+- `500 Internal Server Error`: Database error.
+
 #### Get Subscriber
 Retrieves subscriber details.
 
@@ -184,7 +224,39 @@ curl -X POST http://localhost:8080/api/v1/subscribers \
 **Response (201 Created):**
 (No Content)
 
-### 2. Get Auth Vector (Normal)
+### 2. Get Subscriber Count
+
+**Request:**
+```bash
+curl -X GET http://localhost:8080/api/v1/subscribers/count
+```
+
+**Response (200 OK):**
+```json
+{
+    "count": 42
+}
+```
+
+### 3. List Subscribers
+
+**Request:**
+```bash
+curl -X GET http://localhost:8080/api/v1/subscribers
+```
+
+**Response (200 OK):**
+```json
+[
+    {
+        "imsi": "123456789012345",
+        ...
+    },
+    ...
+]
+```
+
+### 4. Get Auth Vector (Normal)
 
 **Request:**
 ```bash

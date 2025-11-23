@@ -115,7 +115,21 @@ curl -X POST http://localhost:8080/api/v1/subscribers \
   }'
 ```
 
-### 2. Get Auth Vector (Normal)
+### 2. Get Subscriber Count
+**GET** `/api/v1/subscribers/count`
+
+```bash
+curl -X GET http://localhost:8080/api/v1/subscribers/count
+```
+
+### 3. List Subscribers
+**GET** `/api/v1/subscribers`
+
+```bash
+curl -X GET http://localhost:8080/api/v1/subscribers
+```
+
+### 4. Get Auth Vector (Normal)
 **POST** `/api/v1/auth/{imsi}`
 
 ```bash
@@ -135,7 +149,7 @@ curl -X POST http://localhost:8080/api/v1/auth/123456789012345 \
 }
 ```
 
-### 3. Get Auth Vector (Resync)
+### 5. Get Auth Vector (Resync)
 **POST** `/api/v1/auth/{imsi}`
 
 ```bash
@@ -147,14 +161,14 @@ curl -X POST http://localhost:8080/api/v1/auth/123456789012345 \
   }'
 ```
 
-### 4. Get Subscriber
+### 6. Get Subscriber
 **GET** `/api/v1/subscribers/{imsi}`
 
 ```bash
 curl -X GET http://localhost:8080/api/v1/subscribers/123456789012345
 ```
 
-### 5. Update Subscriber
+### 7. Update Subscriber
 **PUT** `/api/v1/subscribers/{imsi}`
 
 ```bash
@@ -168,7 +182,7 @@ curl -X PUT http://localhost:8080/api/v1/subscribers/123456789012345 \
   }'
 ```
 
-### 6. Delete Subscriber
+### 8. Delete Subscriber
 **DELETE** `/api/v1/subscribers/{imsi}`
 
 ```bash
