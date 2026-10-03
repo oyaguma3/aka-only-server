@@ -1,0 +1,119 @@
+# テスト、イメージのビルド、README の手順の通し確認を行う。
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# 同じブランチで新しく push したら、古い実行は止める。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: テスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      # internal/store と internal/adminapi の結合テストに使う（パッケージごとに論理データベースを分けている）。
+      valkey:
+        image: valkey/valkey:9
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      AKA_TEST_VALKEY_ADDR: localhost:6379
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: 整形の確認
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt で整形されていないファイル:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: テスト（Valkey の結合テストを含む）
+        run: go test -race -count=1 ./...
+      - name: Valkey の結合テストが実行されたことの確認
+        run: |
+          # 接続先がなければ結合テストはスキップされ、テスト自体は成功してしまうので、別に確かめる。
+          go test -count=1 -v ./internal/store/ ./internal/adminapi/ | tee integration.log
+          if grep -q -- '--- SKIP' integration.log; then
+            echo "Valkey の結合テストがスキップされました"
+            exit 1
+          fi
+
+  docker:
+    name: イメージと compose の設定
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: イメージのビルド
+        run: docker build --build-arg VERSION="${GITHUB_SHA::7}" -t aka-only-server:ci .
+      - name: compose の設定
+        run: |
+          cp .env.example .env
+          docker compose config -q
+          docker compose config --services
+
+  readme:
+    name: README の手順の通し確認
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # 以下は README の「起動」「クライアントと加入者の登録」「認証ベクターの取得」と同じ手順。
+      - name: 起動
+        run: |
+          cp .env.example .env
+          sed -i "s|^VALKEY_PASSWORD=.*|VALKEY_PASSWORD=ci-$(openssl rand -hex 12)|" .env
+          docker compose up -d --build
+      - name: クライアントと加入者の登録
+        run: |
+          docker compose exec -T aka-only-server /aka-only-server client gen-cert -name radius > radius.pem
+          docker compose exec -T aka-only-server /aka-only-server client add -name radius -cert - < radius.pem
+          docker compose exec -T aka-only-server /aka-only-server subscriber add -imsi 440100123456789 -ki 465b5ce8b199b49faa5f0a2ee238a6bc -opc cd63cb71954a9f4e48a5994e37a02baf -clients 1
+          docker compose exec -T aka-only-server /aka-only-server av-cert > server.pem
+      - name: 認証ベクターの取得（eap-aka / umts-aka / eap-aka-prime）
+        run: |
+          get() {
+            curl -sS --fail-with-body --retry 10 --retry-delay 2 --retry-all-errors \
+              --cacert server.pem --cert radius.pem -X POST \
+              "https://localhost:8443/nudm-ueau/v1/imsi-440100123456789/hss-security-information/$1/generate-av" \
+              -d "{\"hssAuthType\":\"$2\",\"numOfRequestedVectors\":$3}"
+          }
+          check() {
+            # 要求した数のベクターがあり、鍵（CK / IK または CK' / IK'）が入っていること。
+            echo "$1" | jq -e --argjson n "$2" --arg ck "$3" --arg ik "$4" \
+              '(.hssAuthenticationVectors | length) == $n and all(.hssAuthenticationVectors[]; (.[$ck] | length) == 32 and (.[$ik] | length) == 32 and (.autn | length) == 32)'
+          }
+          check "$(get eap-aka EAP_AKA 1)" 1 ck ik
+          check "$(get umts-aka UMTS_AKA 3)" 3 ck ik
+          check "$(get eap-aka-prime EAP_AKA_PRIME 1)" 1 ckPrime ikPrime
+      - name: 登録したクライアント以外は接続できないこと
+        run: |
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 -subj /CN=stranger -keyout stranger-key.pem -out stranger.pem 2>/dev/null
+          if curl -sS --cacert server.pem --cert stranger.pem --key stranger-key.pem -X POST \
+              https://localhost:8443/nudm-ueau/v1/imsi-440100123456789/hss-security-information/eap-aka/generate-av \
+              -d '{"hssAuthType":"EAP_AKA","numOfRequestedVectors":1}'; then
+            echo "未登録のクライアントが接続できてしまいました"
+            exit 1
+          fi
+      - name: ログ（失敗時）
+        if: failure()
+        run: docker compose logs --no-color

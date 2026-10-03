@@ -1,5 +1,7 @@
 # aka-only-server
 
+[![CI](https://github.com/oyaguma3/aka-only-server/actions/workflows/ci.yml/badge.svg)](https://github.com/oyaguma3/aka-only-server/actions/workflows/ci.yml)
+
 指定した IMSI に対して、Milenage による AKA 認証ベクターを払い出す API サーバーです。EAP-AKA / EAP-AKA' の RADIUS サーバーなどから使うことを想定しています。
 
 - 認証ベクターAPI は 3GPP TS 29.503 Nudm_UEAU の GenerateAv をベースにしています。
@@ -166,6 +168,16 @@ docker run -d --rm --name aka-test-valkey -p 127.0.0.1:16379:6379 valkey/valkey:
 ```bash
 AKA_TEST_VALKEY_ADDR=127.0.0.1:16379 go test ./...
 ```
+
+GitHub Actions（`.github/workflows/ci.yml`）で、push と pull request のたびに次を実行します。
+
+| ジョブ | 内容 |
+|---|---|
+| テスト | gofmt の確認、`go vet`、race 検出つきのテスト（Valkey の結合テストを含む） |
+| イメージと compose の設定 | Docker イメージのビルドと compose の設定の検査 |
+| README の手順の通し確認 | この README の「起動」から「認証ベクターの取得」までを実行し、3 つの認証タイプでベクターを取得する。未登録のクライアントが接続できないことも確かめる |
+
+管理API と BFF の契約は、[web-gui-for-aka-only-server](https://github.com/oyaguma3/web-gui-for-aka-only-server) の CI がこのリポジトリの main を相手に確かめます。
 
 ## ドキュメント
 
