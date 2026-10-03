@@ -1,0 +1,1046 @@
+openapi: 3.0.3
+info:
+  title: aka-only-server 管理API
+  version: 0.1.0-draft
+  description: |
+    加入者、AVクライアント、AV用サーバー証明書、ログを操作する API。
+    web-gui-for-aka-only-server などの管理 GUI 実装は、この API だけを使う。
+
+    認証:
+    - 認証ベクターAPI とは別のポート、別のサーバー証明書で提供する。
+    - mTLS 必須。サーバー側に静的設定された管理クライアントの証明書だけを受け付ける。
+      証明書なし、または未登録の証明書による接続は TLS ハンドシェイクで拒否する。
+    - 管理クライアントは全権として扱う。ユーザーや権限の概念はこの API にはない。
+
+    監査ログ:
+    - 変更操作と Ki / OPc の取得は監査ログに記録する。
+    - 管理クライアントは `X-Operator-Id` ヘッダーで操作者 ID を渡す。
+      省略した場合、監査ログには管理クライアントの識別名だけが残る。
+
+    表記:
+    - 16進文字列は大文字・小文字のどちらも受け付け、小文字で返す。
+    - 日時は RFC 3339 形式の UTC。
+    - エラーは ProblemDetails（`application/problem+json`）で返す。
+
+servers:
+  - url: https://{host}:{port}/admin/v1
+    variables:
+      host:
+        default: localhost
+      port:
+        default: '9443'
+
+tags:
+  - name: status
+    description: サーバーの状態
+  - name: subscribers
+    description: 加入者
+  - name: clients
+    description: AVクライアント（認証ベクターAPI のクライアント）
+  - name: av-server-certificate
+    description: 認証ベクターAPI 用のサーバー証明書
+  - name: logs
+    description: サーバーログと監査ログ
+
+paths:
+  /status:
+    get:
+      tags: [status]
+      summary: サーバーの状態を取得する
+      operationId: getStatus
+      responses:
+        '200':
+          description: サーバーの状態
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /subscribers:
+    parameters:
+      - $ref: '#/components/parameters/OperatorId'
+    get:
+      tags: [subscribers]
+      summary: 加入者の一覧を取得する
+      operationId: listSubscribers
+      description: IMSI の辞書順で返す。Ki と OPc は含まない。
+      parameters:
+        - name: prefix
+          in: query
+          description: IMSI の前方一致条件。
+          schema:
+            type: string
+            pattern: '^[0-9]{1,15}$'
+        - name: cursor
+          in: query
+          description: 前のページの `nextCursor`。省略時は先頭から返す。
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        '200':
+          description: 加入者の一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriberList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [subscribers]
+      summary: 加入者を登録する
+      operationId: createSubscriber
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubscriberCreate'
+            example:
+              imsi: '440100123456789'
+              ki: 465b5ce8b199b49faa5f0a2ee238a6bc
+              opc: cd63cb71954a9f4e48a5994e37a02baf
+              sqn: '000000000000'
+              amf: '8000'
+              sqnType: inc32
+              allowPlain: false
+              allowedClientIds: [1, 2]
+      responses:
+        '201':
+          description: 登録した加入者。Ki と OPc は含まない。
+          headers:
+            Location:
+              description: 登録した加入者の URI
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscriber'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: 同じ IMSI の加入者が既に存在する。`cause` は `SUBSCRIBER_ALREADY_EXISTS`。
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /subscribers/{imsi}:
+    parameters:
+      - $ref: '#/components/parameters/Imsi'
+      - $ref: '#/components/parameters/OperatorId'
+    get:
+      tags: [subscribers]
+      summary: 加入者を取得する
+      operationId: getSubscriber
+      description: Ki と OPc は含まない。
+      responses:
+        '200':
+          description: 加入者
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscriber'
+        '404':
+          $ref: '#/components/responses/SubscriberNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [subscribers]
+      summary: 加入者を変更する
+      operationId: updateSubscriber
+      description: |
+        指定した項目だけを変更する（JSON Merge Patch）。
+        `allowedClientIds` を指定した場合は、集合全体を置き換える。
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/SubscriberUpdate'
+            example:
+              allowPlain: true
+              allowedClientIds: [1, 3]
+      responses:
+        '200':
+          description: 変更後の加入者。Ki と OPc は含まない。
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscriber'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/SubscriberNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [subscribers]
+      summary: 加入者を削除する
+      operationId: deleteSubscriber
+      description: 削除時点の SQN、AMF、SQN 増加タイプを監査ログに記録する。
+      responses:
+        '204':
+          description: 削除した
+        '404':
+          $ref: '#/components/responses/SubscriberNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /subscribers/{imsi}/keys:
+    parameters:
+      - $ref: '#/components/parameters/Imsi'
+      - $ref: '#/components/parameters/OperatorId'
+    get:
+      tags: [subscribers]
+      summary: 加入者の Ki と OPc を取得する
+      operationId: getSubscriberKeys
+      description: この操作は監査ログに記録する。
+      responses:
+        '200':
+          description: Ki と OPc
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriberKeys'
+        '404':
+          $ref: '#/components/responses/SubscriberNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /clients:
+    parameters:
+      - $ref: '#/components/parameters/OperatorId'
+    get:
+      tags: [clients]
+      summary: AVクライアントの一覧を取得する
+      operationId: listClients
+      description: クライアントID の昇順で全件を返す。
+      responses:
+        '200':
+          description: AVクライアントの一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClientList'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [clients]
+      summary: AVクライアントを登録する
+      operationId: createClient
+      description: クライアント証明書を登録し、クライアントID を発番する。ID は削除後も再利用しない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCreate'
+      responses:
+        '201':
+          description: 登録した AVクライアント
+          headers:
+            Location:
+              description: 登録した AVクライアントの URI
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/CertAlreadyRegistered'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /clients/{clientId}:
+    parameters:
+      - $ref: '#/components/parameters/ClientId'
+      - $ref: '#/components/parameters/OperatorId'
+    get:
+      tags: [clients]
+      summary: AVクライアントを取得する
+      operationId: getClient
+      responses:
+        '200':
+          description: AVクライアント
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '404':
+          $ref: '#/components/responses/ClientNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [clients]
+      summary: AVクライアントを変更する
+      operationId: updateClient
+      description: |
+        指定した項目だけを変更する（JSON Merge Patch）。変更は即時に反映する。
+        証明書の差し替えは `PUT /clients/{clientId}/certificate` で行う。
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: '#/components/schemas/ClientUpdate'
+      responses:
+        '200':
+          description: 変更後の AVクライアント
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/ClientNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [clients]
+      summary: AVクライアントを削除する
+      operationId: deleteClient
+      description: |
+        削除した時点で、そのクライアントは接続できなくなる。
+        各加入者の許可クライアントからの除去は、応答を返した後にサーバーが行う。
+      responses:
+        '204':
+          description: 削除した
+        '404':
+          $ref: '#/components/responses/ClientNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /clients/{clientId}/certificate:
+    parameters:
+      - $ref: '#/components/parameters/ClientId'
+      - $ref: '#/components/parameters/OperatorId'
+    put:
+      tags: [clients]
+      summary: AVクライアントの証明書を差し替える
+      operationId: replaceClientCertificate
+      description: |
+        クライアントID を変えずに証明書だけを差し替える。証明書の更新時に使う。
+        各加入者の許可クライアントの設定はそのまま引き継がれる。
+        差し替えた時点で、古い証明書では接続できなくなる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCertificateReplace'
+      responses:
+        '200':
+          description: 差し替え後の AVクライアント
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/ClientNotFound'
+        '409':
+          $ref: '#/components/responses/CertAlreadyRegistered'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /av-server-certificate:
+    parameters:
+      - $ref: '#/components/parameters/OperatorId'
+    get:
+      tags: [av-server-certificate]
+      summary: 現在の AV用サーバー証明書を取得する
+      operationId: getAvServerCertificate
+      description: 秘密鍵は返さない。
+      responses:
+        '200':
+          description: 現在のサーバー証明書
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerCertificate'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [av-server-certificate]
+      summary: AV用サーバー証明書を登録する
+      operationId: replaceAvServerCertificate
+      description: 持ち込みの証明書と秘密鍵に差し替える。再起動なしで、以後の新しい接続から反映する。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerCertificateReplace'
+      responses:
+        '200':
+          description: 差し替え後のサーバー証明書
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerCertificate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [av-server-certificate]
+      summary: AV用サーバー証明書を削除する
+      operationId: resetAvServerCertificate
+      description: 登録済みの証明書を捨て、自己署名証明書を再生成して置き換える。証明書のない状態にはならない。
+      responses:
+        '200':
+          description: 再生成した自己署名証明書
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerCertificate'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /logs:
+    get:
+      tags: [logs]
+      summary: 直近のサーバーログを取得する
+      operationId: listLogs
+      description: |
+        メモリ上のバッファに残っているログを、古い順に返す。
+        `after` を指定すると、その番号より後のログだけを返す。続きを取得するには、応答の `lastSeq` を次の `after` に渡す。
+
+        バッファはサーバーの再起動で消え、番号も振り直される。
+        応答の `bootId` が前回と変わっていたら、`after` を外して取得し直す。
+      parameters:
+        - name: after
+          in: query
+          description: この番号より後のログを返す。省略時は最新の `limit` 件を返す。
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        '200':
+          description: サーバーログ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /audit-logs:
+    get:
+      tags: [logs]
+      summary: 監査ログを取得する
+      operationId: listAuditLogs
+      description: 新しい順に返す。続きを取得するには、応答の `nextBefore` を次の `before` に渡す。
+      parameters:
+        - name: before
+          in: query
+          description: このエントリID より古いものを返す。省略時は最新から返す。
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: 監査ログ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    Imsi:
+      name: imsi
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Imsi'
+    ClientId:
+      name: clientId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ClientId'
+    OperatorId:
+      name: X-Operator-Id
+      in: header
+      required: false
+      description: 操作者 ID。監査ログに記録する。
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._@-]{1,64}$'
+
+  responses:
+    BadRequest:
+      description: |
+        リクエストが不正。`cause` は次のいずれか。項目ごとの理由は `invalidParams` に入る。
+        - `INVALID_MSG_FORMAT`: JSON として解釈できない
+        - `INVALID_QUERY_PARAM`: クエリパラメーターの値が不正
+        - `MANDATORY_IE_MISSING`: 必須項目がない
+        - `MANDATORY_IE_INCORRECT`: 必須項目の値が不正
+        - `OPTIONAL_IE_INCORRECT`: 任意項目の値が不正
+        - `CLIENT_NOT_FOUND`: `allowedClientIds` に存在しないクライアントID がある
+        - `INVALID_CERTIFICATE`: 証明書または秘密鍵を解釈できない、有効期限が切れている、秘密鍵が証明書と対応していない
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    SubscriberNotFound:
+      description: 加入者が存在しない。`cause` は `USER_NOT_FOUND`。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    ClientNotFound:
+      description: AVクライアントが存在しない。`cause` は `CLIENT_NOT_FOUND`。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    CertAlreadyRegistered:
+      description: 同じ証明書が既に別の AVクライアントに登録されている。`cause` は `CERT_ALREADY_REGISTERED`。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+    InternalError:
+      description: サーバー内部のエラー。`cause` は `SYSTEM_FAILURE`。
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  schemas:
+    Imsi:
+      type: string
+      pattern: '^[0-9]{5,15}$'
+      example: '440100123456789'
+
+    ClientId:
+      type: integer
+      format: int64
+      minimum: 1
+
+    Hex128:
+      type: string
+      pattern: '^[A-Fa-f0-9]{32}$'
+
+    Sqn:
+      type: string
+      description: 最後に払い出した SQN（48bit）。
+      pattern: '^[A-Fa-f0-9]{12}$'
+      example: '000000000020'
+
+    Amf:
+      type: string
+      pattern: '^[A-Fa-f0-9]{4}$'
+      example: '8000'
+
+    SqnType:
+      type: string
+      description: |
+        SQN 増加タイプ。
+        - `inc1`: SQN 全体を 1 加算する
+        - `inc32`: SEQ を 1 加算し、IND は維持する
+        - `inc33`: SEQ と IND を 1 ずつ加算する。複数生成時はバッチ内で IND を固定する
+      enum:
+        - inc1
+        - inc32
+        - inc33
+
+    Subscriber:
+      type: object
+      required:
+        - imsi
+        - sqn
+        - amf
+        - sqnType
+        - allowPlain
+        - allowedClientIds
+        - createdAt
+        - updatedAt
+      properties:
+        imsi:
+          $ref: '#/components/schemas/Imsi'
+        sqn:
+          $ref: '#/components/schemas/Sqn'
+        amf:
+          $ref: '#/components/schemas/Amf'
+        sqnType:
+          $ref: '#/components/schemas/SqnType'
+        allowPlain:
+          type: boolean
+          description: 平文HTTP での払い出しを許可するか。
+        allowedClientIds:
+          type: array
+          description: 許可クライアントID。昇順。削除済みクライアントの ID は含めない。
+          items:
+            $ref: '#/components/schemas/ClientId'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+          description: 最終変更日時。SQN の払い出しでは更新しない。
+
+    SubscriberCreate:
+      type: object
+      required:
+        - imsi
+        - ki
+        - opc
+      properties:
+        imsi:
+          $ref: '#/components/schemas/Imsi'
+        ki:
+          $ref: '#/components/schemas/Hex128'
+        opc:
+          $ref: '#/components/schemas/Hex128'
+        sqn:
+          allOf:
+            - $ref: '#/components/schemas/Sqn'
+          default: '000000000000'
+        amf:
+          allOf:
+            - $ref: '#/components/schemas/Amf'
+          default: '8000'
+        sqnType:
+          allOf:
+            - $ref: '#/components/schemas/SqnType'
+          default: inc32
+        allowPlain:
+          type: boolean
+          default: false
+        allowedClientIds:
+          type: array
+          default: []
+          items:
+            $ref: '#/components/schemas/ClientId'
+
+    SubscriberUpdate:
+      type: object
+      description: 変更する項目だけを指定する。`null` は指定できない。
+      minProperties: 1
+      properties:
+        ki:
+          $ref: '#/components/schemas/Hex128'
+        opc:
+          $ref: '#/components/schemas/Hex128'
+        sqn:
+          $ref: '#/components/schemas/Sqn'
+        amf:
+          $ref: '#/components/schemas/Amf'
+        sqnType:
+          $ref: '#/components/schemas/SqnType'
+        allowPlain:
+          type: boolean
+        allowedClientIds:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClientId'
+
+    SubscriberKeys:
+      type: object
+      required:
+        - ki
+        - opc
+      properties:
+        ki:
+          $ref: '#/components/schemas/Hex128'
+        opc:
+          $ref: '#/components/schemas/Hex128'
+
+    SubscriberList:
+      type: object
+      required:
+        - items
+        - total
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Subscriber'
+        total:
+          type: integer
+          description: '`prefix` に一致する加入者の総数。`prefix` 省略時は全加入者数。'
+        nextCursor:
+          type: string
+          description: 次のページがある場合だけ返す。
+
+    CertPem:
+      type: string
+      description: PEM 形式の X.509 証明書。
+      example: |
+        -----BEGIN CERTIFICATE-----
+        ...
+        -----END CERTIFICATE-----
+
+    NetworkName:
+      type: string
+      description: EAP-AKA' の鍵導出に使う Network Name。空文字列なら既定値の `WLAN` を使う。
+      maxLength: 255
+      example: WLAN
+
+    Client:
+      type: object
+      required:
+        - id
+        - name
+        - certPem
+        - fingerprintSha256
+        - subject
+        - notBefore
+        - notAfter
+        - enabled
+        - networkName
+        - createdAt
+      properties:
+        id:
+          $ref: '#/components/schemas/ClientId'
+        name:
+          type: string
+        certPem:
+          $ref: '#/components/schemas/CertPem'
+        fingerprintSha256:
+          type: string
+          description: 証明書（DER）の SHA-256。
+          pattern: '^[a-f0-9]{64}$'
+        subject:
+          type: string
+          description: 証明書の Subject。表示用。
+        notBefore:
+          type: string
+          format: date-time
+        notAfter:
+          type: string
+          format: date-time
+        enabled:
+          type: boolean
+          description: '`false` なら接続を拒否する。'
+        networkName:
+          $ref: '#/components/schemas/NetworkName'
+        createdAt:
+          type: string
+          format: date-time
+
+    ClientCreate:
+      type: object
+      required:
+        - name
+        - certPem
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        certPem:
+          $ref: '#/components/schemas/CertPem'
+        enabled:
+          type: boolean
+          default: true
+        networkName:
+          allOf:
+            - $ref: '#/components/schemas/NetworkName'
+          default: ''
+
+    ClientUpdate:
+      type: object
+      description: 変更する項目だけを指定する。`null` は指定できない。
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        enabled:
+          type: boolean
+        networkName:
+          $ref: '#/components/schemas/NetworkName'
+
+    ClientCertificateReplace:
+      type: object
+      required:
+        - certPem
+      properties:
+        certPem:
+          $ref: '#/components/schemas/CertPem'
+
+    ClientList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Client'
+
+    ServerCertificate:
+      type: object
+      required:
+        - certPem
+        - source
+        - fingerprintSha256
+        - subject
+        - notBefore
+        - notAfter
+        - updatedAt
+      properties:
+        certPem:
+          $ref: '#/components/schemas/CertPem'
+        source:
+          type: string
+          description: 自動生成の自己署名か、持ち込みか。
+          enum:
+            - self-signed
+            - uploaded
+        fingerprintSha256:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        subject:
+          type: string
+        notBefore:
+          type: string
+          format: date-time
+        notAfter:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ServerCertificateReplace:
+      type: object
+      required:
+        - certPem
+        - keyPem
+      properties:
+        certPem:
+          allOf:
+            - $ref: '#/components/schemas/CertPem'
+          description: PEM 形式のサーバー証明書。中間証明書を続けて含めてよい。
+        keyPem:
+          type: string
+          description: PEM 形式の秘密鍵。暗号化されていないもの。
+
+    Status:
+      type: object
+      required:
+        - version
+        - bootId
+        - startedAt
+        - subscriberCount
+        - clientCount
+        - avPlainEnabled
+        - avServerCertificateNotAfter
+      properties:
+        version:
+          type: string
+          description: aka-only-server のバージョン。
+        bootId:
+          type: string
+          description: 起動ごとに変わる識別子。`/logs` の `bootId` と同じ値。
+        startedAt:
+          type: string
+          format: date-time
+        subscriberCount:
+          type: integer
+        clientCount:
+          type: integer
+        avPlainEnabled:
+          type: boolean
+          description: 認証ベクターAPI の平文HTTP リスナーが有効か。
+        avServerCertificateNotAfter:
+          type: string
+          format: date-time
+          description: AV用サーバー証明書の有効期限。
+
+    LogEntry:
+      type: object
+      required:
+        - seq
+        - time
+        - level
+        - msg
+      properties:
+        seq:
+          type: integer
+          format: int64
+          description: 起動からの通し番号。
+        time:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum:
+            - DEBUG
+            - INFO
+            - WARN
+            - ERROR
+        msg:
+          type: string
+        attrs:
+          type: object
+          description: ログの属性。
+          additionalProperties: true
+
+    LogList:
+      type: object
+      required:
+        - bootId
+        - items
+        - lastSeq
+      properties:
+        bootId:
+          type: string
+          description: 起動ごとに変わる識別子。
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEntry'
+        lastSeq:
+          type: integer
+          format: int64
+          description: 返した最後のログの番号。返すログがなければ、指定された `after` の値（省略時は 0）。
+
+    AuditAction:
+      type: string
+      enum:
+        - subscriber.create
+        - subscriber.update
+        - subscriber.delete
+        - subscriber.keys.read
+        - client.create
+        - client.update
+        - client.certificate.replace
+        - client.delete
+        - av-server-certificate.replace
+        - av-server-certificate.reset
+
+    AuditLogEntry:
+      type: object
+      required:
+        - id
+        - time
+        - operator
+        - mgmtClient
+        - action
+        - target
+      properties:
+        id:
+          type: string
+          description: エントリID。
+        time:
+          type: string
+          format: date-time
+        operator:
+          type: string
+          description: 操作者 ID。`X-Operator-Id` が省略された場合は空文字列。
+        mgmtClient:
+          type: string
+          description: 管理クライアントの識別名。
+        action:
+          $ref: '#/components/schemas/AuditAction'
+        target:
+          type: string
+          description: 対象。IMSI、クライアントID など。
+        detail:
+          type: object
+          description: |
+            変更内容。
+            - 加入者の登録と削除では、その時点の `sqn`、`amf`、`sqnType` を含む。
+            - 変更では、変更した項目の前後の値を含む。
+            - Ki と OPc は値を含まず、変更の有無だけを含む。
+          additionalProperties: true
+
+    AuditLogList:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogEntry'
+        nextBefore:
+          type: string
+          description: さらに古いエントリがある場合だけ返す。
+
+    InvalidParam:
+      type: object
+      required:
+        - param
+      properties:
+        param:
+          type: string
+          description: 不正だった項目の名前。
+        reason:
+          type: string
+
+    ProblemDetails:
+      type: object
+      properties:
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        cause:
+          type: string
+          enum:
+            - INVALID_MSG_FORMAT
+            - INVALID_QUERY_PARAM
+            - MANDATORY_IE_MISSING
+            - MANDATORY_IE_INCORRECT
+            - OPTIONAL_IE_INCORRECT
+            - USER_NOT_FOUND
+            - SUBSCRIBER_ALREADY_EXISTS
+            - CLIENT_NOT_FOUND
+            - CERT_ALREADY_REGISTERED
+            - INVALID_CERTIFICATE
+            - SYSTEM_FAILURE
+        invalidParams:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/InvalidParam'
