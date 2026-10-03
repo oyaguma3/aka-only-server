@@ -6,7 +6,7 @@
 - クライアントは mTLS で識別し、加入者ごとに払い出しを許可するクライアントを指定します。
 - データは Valkey に保存します。
 - 加入者やクライアントは、管理API またはコマンドで操作します。
-- GUI は持ちません。管理 GUI は [web-gui-for-aka-only-server](https://github.com/oyaguma3/web-gui-for-aka-only-server) で提供する予定です。
+- GUI は持ちません。管理 GUI は [web-gui-for-aka-only-server](https://github.com/oyaguma3/web-gui-for-aka-only-server) で提供しています。
 
 個人利用・検証用途のサーバーです。Ki / OPc は Valkey に平文で保存します。
 
@@ -16,7 +16,7 @@
 |---|---|---|
 | 1 | AKA コア、Valkey、認証ベクターAPI（mTLS / 平文HTTP） | 実装済み |
 | 2 | 管理API | 実装済み |
-| 3 | BFF / Web GUI | 未着手 |
+| 3 | BFF / Web GUI（web-gui-for-aka-only-server） | 実装済み |
 
 ## 起動
 
