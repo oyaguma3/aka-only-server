@@ -1,3 +1,6 @@
 .env
 *.pem
 /aka-only-server
+
+# 検証用の環境の情報などを含むので公開しない
+CLAUDE.md
