@@ -686,7 +686,7 @@ func TestAudit(t *testing.T) {
 		t.Errorf("empty: %v, %q, %v", got, next, err)
 	}
 	for i := range 5 {
-		e := AuditEntry{Operator: "alice", MgmtClient: "bff", Action: "subscriber.create", Target: fmt.Sprint(i), Detail: `{"n":1}`}
+		e := AuditEntry{Operator: "alice", MgmtClient: "bff", Action: "subscriber.create", Target: fmt.Sprint(i), Detail: `{"n":1}`, TraceID: "t" + fmt.Sprint(i)}
 		if err := s.AppendAudit(ctx, e, 1000); err != nil {
 			t.Fatal(err)
 		}
@@ -701,7 +701,7 @@ func TestAudit(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, e := range got {
-			if e.Operator != "alice" || e.MgmtClient != "bff" || e.Action != "subscriber.create" || e.Detail != `{"n":1}` {
+			if e.Operator != "alice" || e.MgmtClient != "bff" || e.Action != "subscriber.create" || e.Detail != `{"n":1}` || e.TraceID != "t"+e.Target {
 				t.Errorf("entry = %+v", e)
 			}
 			if time.Since(e.Time) > time.Minute || e.ID == "" {
@@ -716,5 +716,19 @@ func TestAudit(t *testing.T) {
 	}
 	if want := []string{"4", "3", "2", "1", "0"}; !slices.Equal(targets, want) {
 		t.Errorf("targets = %v, want %v", targets, want)
+	}
+
+	// trace_id を持たない以前のエントリは、トレースID を空として読む。
+	old := s.c.B().Xadd().Key(keyAudit).Id("*").FieldValue().
+		FieldValue("operator", "bob").
+		FieldValue("mgmt_client", "bff").
+		FieldValue("action", "client.create").
+		FieldValue("target", "9").
+		FieldValue("detail", "").Build()
+	if err := s.c.Do(ctx, old).Error(); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, err := s.ListAudit(ctx, "", 1); err != nil || len(got) != 1 || got[0].Operator != "bob" || got[0].TraceID != "" {
+		t.Errorf("entry without trace_id = %+v, %v", got, err)
 	}
 }

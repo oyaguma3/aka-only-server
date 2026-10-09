@@ -301,11 +301,12 @@ func (h *Handler) deleteClient(w http.ResponseWriter, r *http.Request) {
 
 	// 各加入者の許可クライアントからの除去は、応答を返した後に行う。
 	// ID を再利用しないので、これが途中で止まっても別のクライアントが許可されることはない。
+	trace := traceID(r)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), purgeTimeout)
 		defer cancel()
 		if err := h.Store.PurgeClientFromSubscribers(ctx, c.ID); err != nil {
-			h.Log.Error("purge deleted client from subscribers", "client_id", c.ID, "error", err)
+			h.Log.Error("purge deleted client from subscribers", "trace_id", trace, "client_id", c.ID, "error", err)
 		}
 	}()
 	w.WriteHeader(http.StatusNoContent)

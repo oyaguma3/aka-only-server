@@ -19,6 +19,7 @@ type AuditEntry struct {
 	Action     string
 	Target     string
 	Detail     string // 変更内容の JSON。なければ空
+	TraceID    string // トレースID（X-Trace-ID）。この項目を加える前のエントリでは空
 }
 
 // AppendAudit は監査ログを追記する。件数が maxLen を超えた分は古いものから捨てる。
@@ -28,7 +29,8 @@ func (s *Store) AppendAudit(ctx context.Context, e AuditEntry, maxLen int64) err
 		FieldValue("mgmt_client", e.MgmtClient).
 		FieldValue("action", e.Action).
 		FieldValue("target", e.Target).
-		FieldValue("detail", e.Detail).Build()
+		FieldValue("detail", e.Detail).
+		FieldValue("trace_id", e.TraceID).Build()
 	if err := s.c.Do(ctx, cmd).Error(); err != nil {
 		return fmt.Errorf("append audit: %w", err)
 	}
@@ -61,6 +63,7 @@ func (s *Store) ListAudit(ctx context.Context, before string, limit int) (entrie
 			Action:     r.FieldValues["action"],
 			Target:     r.FieldValues["target"],
 			Detail:     r.FieldValues["detail"],
+			TraceID:    r.FieldValues["trace_id"],
 		}
 	}
 	return entries, nextBefore, nil

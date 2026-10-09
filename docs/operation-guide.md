@@ -159,6 +159,7 @@ docker compose logs -f aka-only-server
 ```
 
 - 管理API では、`GET /admin/v1/logs` でメモリ上の直近分、`GET /admin/v1/audit-logs` で監査ログを取得できる。
+- 管理API のリクエストは `admin request completed` として残る（`GET /admin/v1/logs` だけは debug レベルなので、既定の `info` では残らない）。管理クライアントが `X-Trace-ID` ヘッダーでトレースID を渡すと、その値がこのログと監査ログ（`traceId`）に残り、管理 GUI や統合API の記録と突き合わせられる。
 - 監査ログは `AKA_AUDIT_MAX` 件（既定 10000）を超えると古いものから消える。長く残したい場合は、Docker のログを外部に保存する。
 - コマンド（`subscriber`、`client`）での操作は、監査ログに残らない。日常の操作は管理API で行う。
 - Ki、OPc、CK、IK はログにも監査ログにも出ない。

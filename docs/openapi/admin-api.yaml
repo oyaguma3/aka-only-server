@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: aka-only-server 管理API
-  version: 0.1.0-draft
+  version: 0.2.0
   description: |
     加入者、AVクライアント、AV用サーバー証明書、ログを操作する API。
     web-gui-for-aka-only-server などの管理 GUI 実装は、この API だけを使う。
@@ -16,6 +16,12 @@ info:
     - 変更操作と Ki / OPc の取得は監査ログに記録する。
     - 管理クライアントは `X-Operator-Id` ヘッダーで操作者 ID を渡す。
       省略した場合、監査ログには管理クライアントの識別名だけが残る。
+
+    トレース（0.2.0）:
+    - 管理クライアントは `X-Trace-ID` ヘッダーでトレースID を渡せる。サーバーはそれをログ
+      （`admin request completed`、`audit` 等の `trace_id`）と監査ログの `traceId` に残し、応答の `X-Trace-ID` ヘッダーで返す。
+    - 省略した場合や形式が違う場合は、サーバーが採番する。本PoC（eapaka-radius-server-poc）の
+      Provisioning API と同じ作法。
 
     表記:
     - 16進文字列は大文字・小文字のどちらも受け付け、小文字で返す。
@@ -44,6 +50,8 @@ tags:
 
 paths:
   /status:
+    parameters:
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [status]
       summary: サーバーの状態を取得する
@@ -61,6 +69,7 @@ paths:
   /subscribers:
     parameters:
       - $ref: '#/components/parameters/OperatorId'
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [subscribers]
       summary: 加入者の一覧を取得する
@@ -142,6 +151,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/Imsi'
       - $ref: '#/components/parameters/OperatorId'
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [subscribers]
       summary: 加入者を取得する
@@ -204,6 +214,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/Imsi'
       - $ref: '#/components/parameters/OperatorId'
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [subscribers]
       summary: 加入者の Ki と OPc を取得する
@@ -224,6 +235,7 @@ paths:
   /clients:
     parameters:
       - $ref: '#/components/parameters/OperatorId'
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [clients]
       summary: AVクライアントの一覧を取得する
@@ -272,6 +284,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ClientId'
       - $ref: '#/components/parameters/OperatorId'
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [clients]
       summary: AVクライアントを取得する
@@ -332,6 +345,7 @@ paths:
     parameters:
       - $ref: '#/components/parameters/ClientId'
       - $ref: '#/components/parameters/OperatorId'
+      - $ref: '#/components/parameters/TraceId'
     put:
       tags: [clients]
       summary: AVクライアントの証明書を差し替える
@@ -365,6 +379,7 @@ paths:
   /av-server-certificate:
     parameters:
       - $ref: '#/components/parameters/OperatorId'
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [av-server-certificate]
       summary: 現在の AV用サーバー証明書を取得する
@@ -417,6 +432,8 @@ paths:
           $ref: '#/components/responses/InternalError'
 
   /logs:
+    parameters:
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [logs]
       summary: 直近のサーバーログを取得する
@@ -455,6 +472,8 @@ paths:
           $ref: '#/components/responses/InternalError'
 
   /audit-logs:
+    parameters:
+      - $ref: '#/components/parameters/TraceId'
     get:
       tags: [logs]
       summary: 監査ログを取得する
@@ -507,6 +526,16 @@ components:
       schema:
         type: string
         pattern: '^[A-Za-z0-9._@-]{1,64}$'
+    TraceId:
+      name: X-Trace-ID
+      in: header
+      required: false
+      description: |
+        トレースID。ログの `trace_id` と監査ログの `traceId` に使う。省略時、または形式が違う（印字可能ASCII 1〜64文字でない）場合は
+        サーバーが採番する（16進32桁）。使った値を応答の `X-Trace-ID` ヘッダーで返す（エラーの応答を含む）。
+      schema:
+        type: string
+        pattern: '^[\x21-\x7E]{1,64}$'
 
   responses:
     BadRequest:
@@ -965,6 +994,7 @@ components:
         - mgmtClient
         - action
         - target
+        - traceId
       properties:
         id:
           type: string
@@ -983,6 +1013,9 @@ components:
         target:
           type: string
           description: 対象。IMSI、クライアントID など。
+        traceId:
+          type: string
+          description: トレースID（`X-Trace-ID`。0.2.0）。ログの `trace_id` と同じ。0.2.0 より前に記録されたエントリでは空文字列。
         detail:
           type: object
           description: |

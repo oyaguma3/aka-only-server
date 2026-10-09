@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -182,6 +183,7 @@ type auditEntry struct {
 	MgmtClient string         `json:"mgmtClient"`
 	Action     string         `json:"action"`
 	Target     string         `json:"target"`
+	TraceID    string         `json:"traceId"`
 	Detail     map[string]any `json:"detail"`
 }
 
@@ -709,6 +711,93 @@ func TestOperatorHeader(t *testing.T) {
 	audits := e.audits()
 	if len(audits) != 1 || audits[0].Operator != "" || audits[0].MgmtClient != "test-bff" {
 		t.Errorf("audits = %+v", audits)
+	}
+}
+
+func TestTraceID(t *testing.T) {
+	e := newEnv(t)
+	send := func(method, path, operator, traceID string, body string) response {
+		var rd io.Reader
+		if body != "" {
+			rd = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, "/admin/v1"+path, rd)
+		if operator != "" {
+			req.Header.Set("X-Operator-Id", operator)
+		}
+		if traceID != "" {
+			req.Header.Set("X-Trace-ID", traceID)
+		}
+		rec := httptest.NewRecorder()
+		e.h.ServeHTTP(rec, req)
+		return response{rec.Code, rec.Header(), rec.Body.Bytes()}
+	}
+	subscriber := func(imsi string) string {
+		return `{"imsi":"` + imsi + `","ki":"` + testKi + `","opc":"` + testOPc + `"}`
+	}
+	generated := regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+	// 受け取ったトレースID を応答で返し、監査ログに残す。
+	if r := send("POST", "/subscribers", "alice", "trace-001", subscriber("001010000000001")); r.status != http.StatusCreated || r.header.Get("X-Trace-ID") != "trace-001" {
+		t.Fatalf("given: status = %d, X-Trace-ID = %q (%s)", r.status, r.header.Get("X-Trace-ID"), r.body)
+	}
+	// ないとき、形式が違うとき（空白を含む、65 文字）は採番する。
+	var issued []string
+	for i, v := range []string{"", "bad trace", strings.Repeat("a", 65)} {
+		r := send("POST", "/subscribers", "alice", v, subscriber(fmt.Sprintf("00101000000001%d", i)))
+		got := r.header.Get("X-Trace-ID")
+		if r.status != http.StatusCreated || !generated.MatchString(got) {
+			t.Fatalf("trace %q: status = %d, X-Trace-ID = %q", v, r.status, got)
+		}
+		issued = append(issued, got)
+	}
+	// エラーの応答にも付ける。
+	if r := send("GET", "/subscribers/001010000000099", "", "trace-404", ""); r.status != http.StatusNotFound || r.header.Get("X-Trace-ID") != "trace-404" {
+		t.Errorf("error response: status = %d, X-Trace-ID = %q", r.status, r.header.Get("X-Trace-ID"))
+	}
+	if r := send("GET", "/status", "bad operator!", "trace-400", ""); r.status != http.StatusBadRequest || r.header.Get("X-Trace-ID") != "trace-400" {
+		t.Errorf("bad operator: status = %d, X-Trace-ID = %q", r.status, r.header.Get("X-Trace-ID"))
+	}
+
+	var traces []string
+	for _, a := range e.audits() {
+		traces = append(traces, a.TraceID)
+	}
+	if want := append([]string{"trace-001"}, issued...); !slices.Equal(traces, want) {
+		t.Errorf("audit traceIds = %v, want %v", traces, want)
+	}
+
+	// 処理を終えたリクエストを admin request completed として記録する。GET /logs は info では記録しない。
+	type logList struct {
+		Items []struct {
+			Level string         `json:"level"`
+			Msg   string         `json:"msg"`
+			Attrs map[string]any `json:"attrs"`
+		} `json:"items"`
+	}
+	completed := map[string]map[string]any{}
+	for _, l := range decode[logList](t, e.do("GET", "/logs", nil), http.StatusOK).Items {
+		if l.Msg != "admin request completed" {
+			continue
+		}
+		if l.Level != "INFO" {
+			t.Errorf("level = %s", l.Level)
+		}
+		if l.Attrs["path"] == "/admin/v1/logs" {
+			t.Errorf("GET /logs is logged at info: %v", l.Attrs)
+		}
+		completed[fmt.Sprint(l.Attrs["trace_id"])] = l.Attrs
+	}
+	if a := completed["trace-001"]; a == nil || a["method"] != "POST" || a["path"] != "/admin/v1/subscribers" ||
+		fmt.Sprint(a["http_status"]) != "201" || a["mgmt_client"] != "test-bff" || a["operator"] != "alice" {
+		t.Errorf("trace-001 = %v", a)
+	}
+	if a := completed["trace-404"]; a == nil || fmt.Sprint(a["http_status"]) != "404" || a["operator"] != "" {
+		t.Errorf("trace-404 = %v", a)
+	}
+	// 形式の違う操作者 ID はそのまま記録しない。
+	if a := completed["trace-400"]; a == nil || fmt.Sprint(a["http_status"]) != "400" || a["operator"] != "" {
+		t.Errorf("trace-400 = %v", a)
 	}
 }
 

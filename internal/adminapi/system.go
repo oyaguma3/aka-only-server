@@ -217,6 +217,7 @@ type auditLogEntryJSON struct {
 	MgmtClient string         `json:"mgmtClient"`
 	Action     string         `json:"action"`
 	Target     string         `json:"target"`
+	TraceID    string         `json:"traceId"`
 	Detail     jsontext.Value `json:"detail,omitempty"`
 }
 
@@ -248,6 +249,7 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request) {
 	for i, e := range entries {
 		out.Items[i] = auditLogEntryJSON{
 			ID: e.ID, Time: e.Time, Operator: e.Operator, MgmtClient: e.MgmtClient, Action: e.Action, Target: e.Target,
+			TraceID: e.TraceID,
 		}
 		// 保存してある JSON をそのまま埋め込む。壊れている場合は省く。
 		if v := jsontext.Value(e.Detail); e.Detail != "" && v.IsValid() {

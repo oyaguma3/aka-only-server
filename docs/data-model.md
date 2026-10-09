@@ -192,6 +192,7 @@ AV 用と管理API 用で、同じ形式の Hash を別々のキーに持つ。
 | `action` | 操作の種類。値の一覧は [管理API](openapi/admin-api.yaml) の `AuditAction` を参照 |
 | `target` | 対象（IMSI、クライアントID など） |
 | `detail` | 変更内容の JSON |
+| `trace_id` | トレースID（管理クライアントが `X-Trace-ID` で渡した値、またはサーバーが採番した値）。管理API 0.2.0 で追加。それより前のエントリにはない |
 
 `detail` の内容:
 

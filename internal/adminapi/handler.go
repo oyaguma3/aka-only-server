@@ -4,10 +4,13 @@ package adminapi
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -94,8 +97,92 @@ func (h *Handler) Routes() http.Handler {
 
 	mux.HandleFunc("GET /admin/v1/logs", h.listLogs)
 	mux.HandleFunc("GET /admin/v1/audit-logs", h.listAuditLogs)
-	return checkOperator(mux)
+	return h.observe(checkOperator(mux))
 }
+
+const traceIDHeader = "X-Trace-ID"
+
+// traceIDPattern は受け付けるトレースID（印字可能 ASCII 1〜64 文字）。それ以外はサーバーが採番し直す。
+// 本PoC（eapaka-radius-server-poc）の provisioning-api と同じ。
+var traceIDPattern = regexp.MustCompile(`^[\x21-\x7E]{1,64}$`)
+
+type traceIDKey struct{}
+
+// newTraceID はトレースID（16 バイトの乱数の 16 進表記）を採番する。
+func newTraceID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// traceID はリクエストのトレースID を返す。
+func traceID(r *http.Request) string {
+	id, _ := r.Context().Value(traceIDKey{}).(string)
+	return id
+}
+
+// observe は X-Trace-ID ヘッダーのトレースID を使い（なければ採番し）、応答の X-Trace-ID ヘッダーで返す。
+// 処理を終えたリクエストは admin request completed として記録する。
+// GET /logs は管理 GUI が数秒ごとに呼ぶため、debug レベルにする（info だと、取得した記録自体がログに積もり続ける）。
+func (h *Handler) observe(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		id := r.Header.Get(traceIDHeader)
+		if !traceIDPattern.MatchString(id) {
+			id = newTraceID()
+		}
+		w.Header().Set(traceIDHeader, id)
+		r = r.WithContext(context.WithValue(r.Context(), traceIDKey{}, id))
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
+		next.ServeHTTP(rec, r)
+
+		level := slog.LevelInfo
+		if r.Method == http.MethodGet && r.URL.Path == "/admin/v1/logs" {
+			level = slog.LevelDebug
+		}
+		operator := r.Header.Get(operatorHeader)
+		if !operatorPattern.MatchString(operator) {
+			operator = "" // 形式の違う値は 400 で断っており、そのままは記録しない
+		}
+		srcIP, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			srcIP = r.RemoteAddr
+		}
+		h.Log.Log(r.Context(), level, "admin request completed",
+			"trace_id", id,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"http_status", rec.status,
+			"latency_ms", time.Since(start).Milliseconds(),
+			"mgmt_client", h.MgmtClient(r),
+			"operator", operator,
+			"src_ip", srcIP,
+		)
+	})
+}
+
+// statusRecorder は応答のステータスを記録する。
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	if !s.wroteHeader {
+		s.status, s.wroteHeader = code, true
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	s.wroteHeader = true
+	return s.ResponseWriter.Write(b)
+}
+
+// Unwrap は http.ResponseController が元の ResponseWriter を使えるようにする。
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 const operatorHeader = "X-Operator-Id"
 
@@ -160,7 +247,7 @@ func (p *problem) write(w http.ResponseWriter) {
 
 // internalError は内部エラーを記録し、詳細を伏せた 500 を返す。
 func (h *Handler) internalError(w http.ResponseWriter, r *http.Request, err error) {
-	h.Log.Error("admin request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+	h.Log.Error("admin request failed", "trace_id", traceID(r), "method", r.Method, "path", r.URL.Path, "error", err)
 	newProblem(http.StatusInternalServerError, causeSystemFailure, "").write(w)
 }
 
@@ -267,19 +354,20 @@ func (h *Handler) audit(r *http.Request, action, target string, detail any) {
 		MgmtClient: h.MgmtClient(r),
 		Action:     action,
 		Target:     target,
+		TraceID:    traceID(r),
 	}
 	if detail != nil {
 		b, err := json.Marshal(detail)
 		if err != nil {
-			h.Log.Error("marshal audit detail", "action", action, "error", err)
+			h.Log.Error("marshal audit detail", "trace_id", e.TraceID, "action", action, "error", err)
 		}
 		e.Detail = string(b)
 	}
-	h.Log.Info("audit", "operator", e.Operator, "mgmt_client", e.MgmtClient, "action", action, "target", target, "detail", e.Detail)
+	h.Log.Info("audit", "trace_id", e.TraceID, "operator", e.Operator, "mgmt_client", e.MgmtClient, "action", action, "target", target, "detail", e.Detail)
 	// リクエストが途中で切れても記録は残す。
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Second)
 	defer cancel()
 	if err := h.Store.AppendAudit(ctx, e, h.AuditMaxLen); err != nil {
-		h.Log.Error("append audit", "action", action, "target", target, "error", err)
+		h.Log.Error("append audit", "trace_id", e.TraceID, "action", action, "target", target, "error", err)
 	}
 }
