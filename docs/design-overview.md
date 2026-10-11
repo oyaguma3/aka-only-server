@@ -41,7 +41,7 @@
 
 ## 3. 技術方針
 
-- 言語: Go 1.27.1。
+- 言語: Go 1.27.2。
 - 標準ライブラリを優先する。HTTP は `net/http`、TLS は `crypto/tls`、JSON は `encoding/json/v2`、ログは `log/slog`、設定は環境変数（`os.Getenv`）。
 - 外部依存は次に限る。
   - `github.com/wmnsk/milenage`: Milenage 計算
@@ -236,7 +236,7 @@ SQN(48bit) = SEQ(43bit) || IND(5bit) とする。加算パターンは加入者�
 - 同時リクエストで SQN が重複しないことを、実際の Valkey を使う結合テストで確認する。
 - 管理API は、ハンドラーからストアまでを実際の Valkey に対して通しで確かめる。
 - Valkey を使うテストは、接続先を環境変数（`AKA_TEST_VALKEY_ADDR`）で指定したときだけ実行する。
-- GitHub Actions の CI が、push と pull request のたびにテスト（Valkey の結合テストを含む）、イメージのビルド、README の手順の通し確認を実行する。
+- GitHub Actions の CI が、push と pull request のたびにテスト（Valkey の結合テストを含む）、イメージのビルド、README の手順の通し確認を実行する。依存と標準ライブラリの既知の脆弱性は、別のワークフローが push と pull request のたびと毎週 govulncheck で調べる。
 - 管理API と BFF の契約は、web-gui-for-aka-only-server の CI がこのリポジトリの main を相手に確かめる。管理API を変えたときは、そちらの CI も確かめる。
 
 ## 13. 開発フェーズ

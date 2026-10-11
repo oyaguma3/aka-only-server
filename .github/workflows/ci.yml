@@ -21,7 +21,7 @@ jobs:
     services:
       # internal/store と internal/adminapi の結合テストに使う（パッケージごとに論理データベースを分けている）。
       valkey:
-        image: valkey/valkey:9
+        image: valkey/valkey:9.1.2
         ports:
           - 6379:6379
         options: >-
@@ -51,6 +51,7 @@ jobs:
       - name: Valkey の結合テストが実行されたことの確認
         run: |
           # 接続先がなければ結合テストはスキップされ、テスト自体は成功してしまうので、別に確かめる。
+          set -o pipefail
           go test -count=1 -v ./internal/store/ ./internal/adminapi/ | tee integration.log
           if grep -q -- '--- SKIP' integration.log; then
             echo "Valkey の結合テストがスキップされました"

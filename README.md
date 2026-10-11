@@ -1,6 +1,7 @@
 # aka-only-server
 
 [![CI](https://github.com/oyaguma3/aka-only-server/actions/workflows/ci.yml/badge.svg)](https://github.com/oyaguma3/aka-only-server/actions/workflows/ci.yml)
+[![govulncheck](https://github.com/oyaguma3/aka-only-server/actions/workflows/govulncheck.yml/badge.svg)](https://github.com/oyaguma3/aka-only-server/actions/workflows/govulncheck.yml)
 
 指定した IMSI に対して、Milenage による AKA 認証ベクターを払い出す API サーバーです。EAP-AKA / EAP-AKA' の RADIUS サーバーなどから使うことを想定しています。
 
@@ -146,6 +147,7 @@ curl --cacert admin.pem --cert bff.pem https://localhost:9443/admin/v1/status
 | `AKA_LOG_LEVEL` | `info` | ログレベル |
 | `AKA_LOG_BUFFER` | `1000` | 管理API で返すためにメモリに保持するログの件数 |
 | `AKA_AUDIT_MAX` | `10000` | 監査ログの保持件数の上限 |
+| `AKA_VERSION` | `dev` | 起動ログと管理API の `/status` に出すバージョン（ビルドのときに埋め込む） |
 
 平文HTTP リスナーは、同一ホスト上のクライアント向けです。CK / IK が平文で流れるので、ループバック以外には公開しないでください。平文HTTP での払い出しは、平文HTTP を許可した加入者に限られます。
 
@@ -153,7 +155,7 @@ Docker が公開したポートは ufw の規則を通りません。公開範�
 
 ## 開発
 
-Go 1.27.1 を使います。
+Go 1.27.2 を使います。
 
 ```bash
 go test ./...
@@ -162,7 +164,7 @@ go test ./...
 Valkey を使う結合テストは、接続先を指定したときだけ実行します。テストは論理データベース 1 番と 2 番の全データを消すので、専用の Valkey を使ってください。
 
 ```bash
-docker run -d --rm --name aka-test-valkey -p 127.0.0.1:16379:6379 valkey/valkey:9
+docker run -d --rm --name aka-test-valkey -p 127.0.0.1:16379:6379 valkey/valkey:9.1.2
 ```
 
 ```bash
@@ -176,6 +178,8 @@ GitHub Actions（`.github/workflows/ci.yml`）で、push と pull request のた
 | テスト | gofmt の確認、`go vet`、race 検出つきのテスト（Valkey の結合テストを含む） |
 | イメージと compose の設定 | Docker イメージのビルドと compose の設定の検査 |
 | README の手順の通し確認 | この README の「起動」から「認証ベクターの取得」までを実行し、3 つの認証タイプでベクターを取得する。未登録のクライアントが接続できないことも確かめる |
+
+依存と標準ライブラリの既知の脆弱性は、`.github/workflows/govulncheck.yml` が push と pull request のたびと、毎週月曜に govulncheck で調べます。
 
 管理API と BFF の契約は、[web-gui-for-aka-only-server](https://github.com/oyaguma3/web-gui-for-aka-only-server) の CI がこのリポジトリの main を相手に確かめます。
 

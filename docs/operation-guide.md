@@ -185,7 +185,7 @@ docker compose stop
 ```
 
 ```bash
-docker run --rm -v aka-only-server_valkey-data:/data:ro -v "$PWD":/backup valkey/valkey:9 tar czf /backup/valkey-data.tgz -C /data .
+docker run --rm -v aka-only-server_valkey-data:/data:ro -v "$PWD":/backup valkey/valkey:9.1.2 tar czf /backup/valkey-data.tgz -C /data .
 ```
 
 ```bash
@@ -201,7 +201,7 @@ docker compose down
 ```
 
 ```bash
-docker run --rm -v aka-only-server_valkey-data:/data -v "$PWD":/backup valkey/valkey:9 sh -c 'rm -rf /data/* && tar xzf /backup/valkey-data.tgz -C /data'
+docker run --rm -v aka-only-server_valkey-data:/data -v "$PWD":/backup valkey/valkey:9.1.2 sh -c 'rm -rf /data/* && tar xzf /backup/valkey-data.tgz -C /data'
 ```
 
 ```bash
@@ -221,6 +221,12 @@ docker compose up -d --build
 ```
 
 データはボリュームに残る。更新の前にバックアップを取っておく。
+
+起動ログと管理API の `/status` の `version` に出るバージョンは、`AKA_VERSION`（既定 `dev`）で決まる。git のコミットを出す場合は、ビルドのときに指定する。
+
+```bash
+AKA_VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
+```
 
 ## 9. 障害時の確認
 

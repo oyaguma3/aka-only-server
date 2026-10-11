@@ -30,7 +30,7 @@ services:
       - av
 
   valkey:
-    image: valkey/valkey:9
+    image: valkey/valkey:9.1.2
     restart: unless-stopped
     # 払い出した SQN を失わないよう、AOF を書き込みごとに同期する。
     command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "always", "--requirepass", "${VALKEY_PASSWORD}"]
