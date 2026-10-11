@@ -3,6 +3,8 @@
 [![CI](https://github.com/oyaguma3/aka-only-server/actions/workflows/ci.yml/badge.svg)](https://github.com/oyaguma3/aka-only-server/actions/workflows/ci.yml)
 [![govulncheck](https://github.com/oyaguma3/aka-only-server/actions/workflows/govulncheck.yml/badge.svg)](https://github.com/oyaguma3/aka-only-server/actions/workflows/govulncheck.yml)
 
+> このリポジトリは、4 つのソフトウェア（[本PoC](https://github.com/oyaguma3/eapaka-radius-server-poc)、[aka-only-server](https://github.com/oyaguma3/aka-only-server)、[eapaka-node-provisioner](https://github.com/oyaguma3/eapaka-node-provisioner)、[eapaka-ossbss-sample](https://github.com/oyaguma3/eapaka-ossbss-sample)）を組み合わせを確かめて提供する **PoC セット**（[eapaka-pocset](https://github.com/oyaguma3/eapaka-pocset)）の一部です。組み合わせ（各リポジトリのコミット）、変更の記録（CHANGELOG）、1 台への導入の案内、4 つを通した試験は eapaka-pocset にあります。
+
 指定した IMSI に対して、Milenage による AKA 認証ベクターを払い出す API サーバーです。EAP-AKA / EAP-AKA' の RADIUS サーバーなどから使うことを想定しています。
 
 - 認証ベクターAPI は 3GPP TS 29.503 Nudm_UEAU の GenerateAv をベースにしています。
