@@ -83,7 +83,8 @@ jobs:
         run: |
           cp .env.example .env
           sed -i "s|^VALKEY_PASSWORD=.*|VALKEY_PASSWORD=ci-$(openssl rand -hex 12)|" .env
-          docker compose up -d --build
+          # aka-only-server と Valkey が healthy になるまで待つ（compose の healthcheck の確認を兼ねる）。
+          docker compose up -d --build --wait --wait-timeout 120
       - name: クライアントと加入者の登録
         run: |
           docker compose exec -T aka-only-server /aka-only-server client gen-cert -name radius > radius.pem

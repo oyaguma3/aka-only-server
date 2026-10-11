@@ -126,6 +126,7 @@ curl --cacert admin.pem --cert bff.pem https://localhost:9443/admin/v1/status
 | `av-cert` | 認証ベクターAPI 用のサーバー証明書を表示する |
 | `admin-cert` | 管理API 用のサーバー証明書を表示する。`admin-cert reset` で作り直す |
 | `fingerprint` | 標準入力の証明書（PEM）の SHA-256 フィンガープリントを表示する |
+| `healthcheck` | 動いているサーバーのリスナーに接続できるかを確かめる（compose の healthcheck が使う） |
 
 各コマンドのオプションは `-h` で確認できます。`subscriber add` の `-sqn-type` には SQN 増加タイプ（`inc1` / `inc32` / `inc33`）を指定します。
 

@@ -15,6 +15,7 @@ import (
 
 	"github.com/oyaguma3/aka-only-server/internal/aka"
 	"github.com/oyaguma3/aka-only-server/internal/store"
+	"github.com/oyaguma3/aka-only-server/internal/traceid"
 )
 
 // DefaultNetworkName は、クライアントに Network Name が設定されていない場合に
@@ -106,8 +107,12 @@ type parsedRequest struct {
 }
 
 func (h *Handler) generateAV(w http.ResponseWriter, r *http.Request) {
+	// 呼び出し元（本PoC の vector-gateway）が X-Trace-ID を送っていればログに残し、1 回の認証を
+	// 呼び出し元のログとつなげられるようにする。なければ採番する。どちらも応答のヘッダーで返す。
+	traceID := traceid.Resolve(r.Header.Get(traceid.Header))
+	w.Header().Set(traceid.Header, traceID)
 	clientID := h.ClientID(r)
-	log := h.Log.With("client_id", clientID, "remote", r.RemoteAddr)
+	log := h.Log.With("trace_id", traceID, "client_id", clientID, "remote", r.RemoteAddr)
 
 	req, p := parseRequest(w, r)
 	if p != nil {

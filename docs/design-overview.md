@@ -78,6 +78,7 @@ POST /nudm-ueau/v1/{supi}/hss-security-information/{hssAuthType}/generate-av
 - リクエスト（HssAuthenticationInfoRequest）: `hssAuthType`、`numOfRequestedVectors`（1〜5）、`resynchronizationInfo`（`rand` / `auts`）、`anId`。
 - レスポンス（HssAuthenticationInfoResult）: `hssAuthenticationVectors`。
 - エラーは ProblemDetails（`application/problem+json`）で返す。
+- クライアントはトレースID を `X-Trace-ID` ヘッダーで渡せる。サーバーはそれを払い出しのログ（`trace_id`）に残し、応答の `X-Trace-ID` ヘッダーで返す。省略した場合や形式が違う場合は採番する。本PoCの vector-gateway が付けるトレースID と、1 回の認証の記録を突き合わせるため（管理API と同じ作法。認証ベクターAPI 0.2.0-draft、2026-10-12）。
 
 パス、項目名、値の範囲は TS 29.503 v18.4.0 の OpenAPI 定義で確認した。詳細は `docs/openapi/av-api.yaml` に定義する。
 
@@ -210,7 +211,7 @@ SQN(48bit) = SEQ(43bit) || IND(5bit) とする。加算パターンは加入者�
 - `log/slog` で JSON を標準出力に出す。ローテーションは Docker に任せる。
 - 直近 N 件をメモリ上のリングバッファに保持し、管理APIで返す。再起動するとバッファは消える。
 - Ki、OPc、CK、IK、CK'、IK' はログに出さない。
-- 認証ベクター払い出しは、クライアントID つきで記録する。
+- 認証ベクター払い出しは、クライアントID とトレースID つきで記録する。
 - 管理API のリクエストは、処理を終えるたびに `admin request completed`（メソッド、パス、ステータス、所要時間、管理クライアント、操作者、トレースID、送信元アドレス）として記録する。管理 GUI が数秒ごとに呼ぶ `GET /logs` だけは debug レベルにする（info だと、取得した記録自体がログに積もり続けるため）。
 
 ### 10.2 監査ログ
@@ -225,6 +226,8 @@ SQN(48bit) = SEQ(43bit) || IND(5bit) とする。加算パターンは加入者�
 
 - `compose.yaml` に aka-only-server と Valkey を定義する。設定は `.env` で与える。
 - コンテナイメージは静的リンクのバイナリを最小のベースイメージに載せる。
+- compose の healthcheck は `aka-only-server healthcheck` で、有効なリスナー（認証ベクターAPI、平文HTTP、管理API）に TCP で接続できるかを確かめる。mTLS のためクライアント証明書がないと要求を送れないので、待ち受けているかどうかの確認にとどめる（Valkey の状態などはログと管理API の `/status` で見る）。
+- 停止の合図からリスナーを閉じ終えるまで最大 10 秒かかるので、compose の `stop_grace_period` を 20 秒にする（Docker の既定の猶予 10 秒では強制終了と重なる）。
 - Docker が公開したポートは ufw の規則を通らないため、公開範囲は `ports` のバインド先アドレスで制御する。
 - 同一ホスト上の別の compose プロジェクト（AKA-RADIUS サーバー、BFF など）とは、共有の Docker ネットワークでつなぐ。Valkey はこのネットワークに出さない。
 
@@ -257,7 +260,7 @@ SQN(48bit) = SEQ(43bit) || IND(5bit) とする。加算パターンは加入者�
 
 | 項目 | 内容 |
 |---|---|
-| 認証ベクターAPI のトレースID | 管理API と同じく `X-Trace-ID` を受け取り（なければ採番し）、払い出しのログに残して応答で返す。本PoCの vector-gateway は接続方式 `01` で `X-Trace-ID` を付けて送っているが、現状このサーバーは参照しない（本PoC D-12 §4.5）。対応したら D-12 の記述も直す（2026-10-10 記録） |
+| 認証ベクターAPI のトレースID | 対応済み（2026-10-12。§5.1、認証ベクターAPI 0.2.0-draft） |
 
 ## 14. ドキュメント
 

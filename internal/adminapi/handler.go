@@ -4,9 +4,7 @@ package adminapi
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"log/slog"
@@ -18,6 +16,7 @@ import (
 
 	"github.com/oyaguma3/aka-only-server/internal/logbuf"
 	"github.com/oyaguma3/aka-only-server/internal/store"
+	"github.com/oyaguma3/aka-only-server/internal/traceid"
 )
 
 const maxBodyBytes = 256 << 10
@@ -100,20 +99,7 @@ func (h *Handler) Routes() http.Handler {
 	return h.observe(checkOperator(mux))
 }
 
-const traceIDHeader = "X-Trace-ID"
-
-// traceIDPattern は受け付けるトレースID（印字可能 ASCII 1〜64 文字）。それ以外はサーバーが採番し直す。
-// 本PoC（eapaka-radius-server-poc）の provisioning-api と同じ。
-var traceIDPattern = regexp.MustCompile(`^[\x21-\x7E]{1,64}$`)
-
 type traceIDKey struct{}
-
-// newTraceID はトレースID（16 バイトの乱数の 16 進表記）を採番する。
-func newTraceID() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
-}
 
 // traceID はリクエストのトレースID を返す。
 func traceID(r *http.Request) string {
@@ -127,11 +113,8 @@ func traceID(r *http.Request) string {
 func (h *Handler) observe(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		id := r.Header.Get(traceIDHeader)
-		if !traceIDPattern.MatchString(id) {
-			id = newTraceID()
-		}
-		w.Header().Set(traceIDHeader, id)
+		id := traceid.Resolve(r.Header.Get(traceid.Header))
+		w.Header().Set(traceid.Header, id)
 		r = r.WithContext(context.WithValue(r.Context(), traceIDKey{}, id))
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: aka-only-server 認証ベクターAPI
-  version: 0.1.0-draft
+  version: 0.2.0-draft
   description: |
     Milenage による AKA 認証ベクターを払い出す API。
 
@@ -19,6 +19,11 @@ info:
       証明書なし、または未登録の証明書による接続は TLS ハンドシェイクで拒否する。
       クライアントが加入者の許可クライアントに含まれていなければ 403 を返す。
     - 平文HTTP リスナー（既定で無効）では、加入者の平文HTTP許可フラグが立っていなければ 403 を返す。
+
+    トレースID（0.2.0-draft）:
+    - クライアントは `X-Trace-ID` ヘッダーでトレースID を渡せる。サーバーはそれを払い出しのログ（`trace_id`）に残し、
+      応答の `X-Trace-ID` ヘッダーで返す（エラーの応答を含む）。省略した場合や形式が違う場合は、サーバーが採番する。
+      本PoC（eapaka-radius-server-poc）の vector-gateway が付けるトレースID と、1 回の認証の記録を突き合わせるため。管理API と同じ作法。
 
 servers:
   - url: https://{host}:{port}/nudm-ueau/v1
@@ -59,6 +64,15 @@ paths:
           description: 認証タイプ。リクエストボディの `hssAuthType` と対応していなければ 400 を返す。
           schema:
             $ref: '#/components/schemas/HssAuthTypeInUri'
+        - name: X-Trace-ID
+          in: header
+          required: false
+          description: |
+            トレースID（0.2.0-draft）。払い出しのログの `trace_id` に使う。省略時、または形式が違う（印字可能ASCII 1〜64文字でない）場合は
+            サーバーが採番する（16進32桁）。使った値を応答の `X-Trace-ID` ヘッダーで返す（エラーの応答を含む）。
+          schema:
+            type: string
+            pattern: '^[\x21-\x7E]{1,64}$'
       requestBody:
         required: true
         content:

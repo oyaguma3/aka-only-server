@@ -316,3 +316,45 @@ func TestMethodNotAllowed(t *testing.T) {
 		t.Errorf("GET: status = %d, want 405", rec.Code)
 	}
 }
+
+func TestTraceID(t *testing.T) {
+	var logs bytes.Buffer
+	h := (&Handler{
+		Allocator: &fakeAllocator{sqn: 64, sqnType: aka.SQNInc32, networkName: "WLAN"},
+		Log:       slog.New(slog.NewJSONHandler(&logs, nil)),
+		ClientID:  func(*http.Request) int64 { return 7 },
+	}).Routes()
+	send := func(traceID, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, basePath+"eap-aka/generate-av", strings.NewReader(body))
+		if traceID != "" {
+			req.Header.Set("X-Trace-ID", traceID)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 呼び出し元のトレースID をそのまま返し、ログに残す（成功・拒否のどちらでも）。
+	for _, body := range []string{`{"hssAuthType":"EAP_AKA","numOfRequestedVectors":1}`, `{"hssAuthType":"EAP_AKA","numOfRequestedVectors":0}`} {
+		logs.Reset()
+		rec := send("vgw-trace-0001", body)
+		if got := rec.Header().Get("X-Trace-ID"); got != "vgw-trace-0001" {
+			t.Errorf("X-Trace-ID = %q, want vgw-trace-0001 (body %s)", got, body)
+		}
+		if !strings.Contains(logs.String(), `"trace_id":"vgw-trace-0001"`) {
+			t.Errorf("log does not contain the trace id: %s", logs.String())
+		}
+	}
+
+	// ない・形の違う値なら採番する。
+	for _, in := range []string{"", "has space"} {
+		logs.Reset()
+		got := send(in, `{"hssAuthType":"EAP_AKA","numOfRequestedVectors":1}`).Header().Get("X-Trace-ID")
+		if len(got) != 32 || got == in {
+			t.Errorf("X-Trace-ID for %q = %q, want a generated id", in, got)
+		}
+		if !strings.Contains(logs.String(), `"trace_id":"`+got+`"`) {
+			t.Errorf("log does not contain the generated trace id %q: %s", got, logs.String())
+		}
+	}
+}

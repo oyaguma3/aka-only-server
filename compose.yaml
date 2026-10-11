@@ -5,9 +5,19 @@ services:
       args:
         VERSION: ${AKA_VERSION:-dev}
     restart: unless-stopped
+    # 停止の合図からリスナーを閉じ終えるまで最大 10 秒かかる（server.go の shutdownTimeout）。
+    # Docker の既定の猶予（10 秒）では強制終了と重なるので、長くする。
+    stop_grace_period: 20s
     depends_on:
       valkey:
         condition: service_healthy
+    # リスナーに接続できるかを確かめる（distroless のため curl はない。mTLS なので TCP の接続まで）。
+    healthcheck:
+      test: ["CMD", "/aka-only-server", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     environment:
       AKA_VALKEY_ADDR: valkey:6379
       AKA_VALKEY_PASSWORD: ${VALKEY_PASSWORD:?.env に VALKEY_PASSWORD を設定してください}

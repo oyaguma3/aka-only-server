@@ -31,6 +31,7 @@ commands:
   av-cert                   認証ベクターAPI 用のサーバー証明書を表示する
   admin-cert [reset]        管理API 用のサーバー証明書を表示する（reset は再生成）
   fingerprint               標準入力の証明書（PEM）の SHA-256 フィンガープリントを表示する
+  healthcheck               動いているサーバーのリスナーに接続できるかを確かめる（compose の healthcheck 用）
 
 各コマンドのオプションは -h で確認できる。
 `
@@ -58,6 +59,8 @@ func main() {
 		err = adminCertCommand(ctx, args[1:])
 	case "fingerprint":
 		err = fingerprintCommand()
+	case "healthcheck":
+		err = healthcheckCommand(ctx)
 	case "-h", "-help", "--help", "help":
 		fmt.Print(usage)
 	default:

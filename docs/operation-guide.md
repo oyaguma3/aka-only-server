@@ -9,7 +9,7 @@
 
 | コンテナ | 内容 |
 |---|---|
-| `aka-only-server` | 認証ベクターAPI と管理API |
+| `aka-only-server` | 認証ベクターAPI と管理API。`docker compose ps` で healthy になれば、有効なリスナーがすべて待ち受けている |
 | `valkey` | データの保存先。ホストにもほかのプロジェクトにもポートを公開しない |
 
 | リスナー | コンテナ内のポート | ホスト側の公開先（既定） | 用途 |
@@ -160,6 +160,7 @@ docker compose logs -f aka-only-server
 
 - 管理API では、`GET /admin/v1/logs` でメモリ上の直近分、`GET /admin/v1/audit-logs` で監査ログを取得できる。
 - 管理API のリクエストは `admin request completed` として残る（`GET /admin/v1/logs` だけは debug レベルなので、既定の `info` では残らない）。管理クライアントが `X-Trace-ID` ヘッダーでトレースID を渡すと、その値がこのログと監査ログ（`traceId`）に残り、管理 GUI や統合API の記録と突き合わせられる。
+- 認証ベクターの払い出しのログ（`av generated`、`av request rejected` など）には `trace_id` が付く。本PoCの vector-gateway が `X-Trace-ID` で渡した値なので、本PoC のログの `trace_id` で 1 回の認証を追える。
 - 監査ログは `AKA_AUDIT_MAX` 件（既定 10000）を超えると古いものから消える。長く残したい場合は、Docker のログを外部に保存する。
 - コマンド（`subscriber`、`client`）での操作は、監査ログに残らない。日常の操作は管理API で行う。
 - Ki、OPc、CK、IK はログにも監査ログにも出ない。
@@ -238,3 +239,4 @@ AKA_VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
 | 400 `OPTIONAL_IE_INCORRECT`（EAP-AKA'） | リクエストの `anId` が、クライアントに設定した Network Name（未設定なら `WLAN`）と一致しているか |
 | 端末が同期失敗を繰り返す | 加入者の SQN 増加タイプが USIM の SQN 検証方式に合っているか |
 | 管理API に接続できない | `AKA_ADMIN_CLIENTS` が設定されているか。起動ログに `admin api is disabled` が出ていないか |
+| `docker compose ps` で aka-only-server が unhealthy | リスナーが待ち受けていない。`docker compose logs aka-only-server` で起動のエラー（Valkey に接続できない、証明書の読み込みの失敗など）を確かめる。`docker compose exec aka-only-server /aka-only-server healthcheck` でどのリスナーかが分かる |
