@@ -227,6 +227,7 @@ SQN(48bit) = SEQ(43bit) || IND(5bit) とする。加算パターンは加入者�
 - `compose.yaml` に aka-only-server と Valkey を定義する。設定は `.env` で与える。
 - コンテナイメージは静的リンクのバイナリを最小のベースイメージに載せる。
 - compose の healthcheck は `aka-only-server healthcheck` で、有効なリスナー（認証ベクターAPI、平文HTTP、管理API）に TCP で接続できるかを確かめる。mTLS のためクライアント証明書がないと要求を送れないので、待ち受けているかどうかの確認にとどめる（Valkey の状態などはログと管理API の `/status` で見る）。
+- healthcheck は接続してすぐ切るので、サーバーは TLS のハンドシェイクの前の切断（`http: TLS handshake error from 127.0.0.1:…: EOF`）を記録する。ループバックからのこの切断だけは DEBUG にし、ログとメモリのログのバッファが healthcheck で埋まらないようにする。外からの接続は別のアドレスから届くので、WARN のまま残る（2026-10-12）。
 - 停止の合図からリスナーを閉じ終えるまで最大 10 秒かかるので、compose の `stop_grace_period` を 20 秒にする（Docker の既定の猶予 10 秒では強制終了と重なる）。
 - Docker が公開したポートは ufw の規則を通らないため、公開範囲は `ports` のバインド先アドレスで制御する。
 - 同一ホスト上の別の compose プロジェクト（AKA-RADIUS サーバー、BFF など）とは、共有の Docker ネットワークでつなぐ。Valkey はこのネットワークに出さない。

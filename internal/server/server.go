@@ -273,7 +273,7 @@ func (s *Server) httpServer(h http.Handler) *http.Server {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
-		ErrorLog:          slog.NewLogLogger(s.log.Handler(), slog.LevelWarn),
+		ErrorLog:          newHTTPErrorLog(s.log.Handler()),
 	}
 }
 
